@@ -18,28 +18,29 @@ class ImageProcessor(
     private val imageShifter = ImageShifter()
     private val convolutionFilter = ConvolutionFilter()
     
-    fun processImage(inputFile: File, outputFile: File): Long {
+    fun processImage(inputFile: File, outputFile: File, threadCount: Int): Long {
         val startTime = System.currentTimeMillis()
 
         val originalImage = imageLoader.loadImage(inputFile)
 
-        val processedImage = applyTransformations(originalImage)
+        val processedImage = applyTransformations(originalImage, threadCount)
 
         imageSaver.saveImage(processedImage, outputFile)
         val endTime = System.currentTimeMillis()
         return endTime - startTime
     }
 
-    private fun applyTransformations(image: BufferedImage): BufferedImage {
+    private fun applyTransformations(image: BufferedImage, threadCount: Int): BufferedImage {
         val shiftedImage = imageShifter.shiftImage(
             image, 
             shiftX, 
             shiftY, 
-            borderColor
+            borderColor,
+            threadCount
         )
 
         val kernel = GaussianBlurKernel.create3x3()
-        val blurredImage = convolutionFilter.applyFilter(shiftedImage, kernel)
+        val blurredImage = convolutionFilter.applyFilter(shiftedImage, kernel, threadCount)
         return blurredImage
     }
 

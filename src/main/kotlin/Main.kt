@@ -4,6 +4,7 @@ import imageprocessing.core.ImageProcessor
 import imageprocessing.testing.PerformanceTester
 import imageprocessing.utils.ImageGenerator
 import java.io.File
+import java.util.Locale
 
 fun main(args: Array<String>) {
     val argsMap = parseArgs(args)
@@ -19,6 +20,7 @@ fun main(args: Array<String>) {
     val iterations = settings.iterations
     val borderColor = settings.borderColor
     val testSizes = settings.testSizes
+    val threadCounts = settings.threadCounts
 
     println("=".repeat(80))
     println("Image processing program")
@@ -36,10 +38,16 @@ fun main(args: Array<String>) {
     println("  - Shift Y: $shiftY pixels")
     println("  - Border color: RGB(${borderColor.first}, ${borderColor.second}, ${borderColor.third})")
     println("  - Runs per size: $iterations")
+    println("  - Thread counts: ${threadCounts.joinToString(", ")}")
     println()
-    val results = tester.runTests(inputDir, testSizes, iterations = iterations)
+    val results = tester.runThreadScalingTests(
+        inputDir = inputDir,
+        imageSizes = testSizes,
+        threadCounts = threadCounts,
+        iterations = iterations
+    )
 
-    printResults(results)
+    printResults(results, threadCounts)
     
     println("\n" + "=".repeat(80))
     println("Processing completed!")
@@ -54,7 +62,8 @@ private data class Settings(
     val shiftY: Int,
     val iterations: Int,
     val borderColor: Triple<Int, Int, Int>,
-    val testSizes: List<Pair<Int, Int>>
+    val testSizes: List<Pair<Int, Int>>,
+    val threadCounts: List<Int>
 )
 
 private fun parseSettings(args: Map<String, String>): Settings {
@@ -66,6 +75,7 @@ private fun parseSettings(args: Map<String, String>): Settings {
     val iterations = if (iterationsRaw < 1) 1 else iterationsRaw
     val borderColor = parseBorderColor(args["borderColor"] ?: "187,38,73")
     val testSizes = parseSizes(args["sizes"] ?: "1024x768,1280x960,2048x1536")
+    val threadCounts = parseThreadCounts(args["threads"] ?: "1,2,4,6,8,10,12,14,16")
     return Settings(
         inputDir = inputDir,
         outputDir = outputDir,
@@ -73,7 +83,8 @@ private fun parseSettings(args: Map<String, String>): Settings {
         shiftY = shiftY,
         iterations = iterations,
         borderColor = borderColor,
-        testSizes = testSizes
+        testSizes = testSizes,
+        threadCounts = threadCounts
     )
 }
 
@@ -148,6 +159,15 @@ private fun parseBorderColor(value: String): Triple<Int, Int, Int> {
     return Triple(r, g, b)
 }
 
+private fun parseThreadCounts(value: String): List<Int> {
+    val parsed = value.split(",")
+        .mapNotNull { it.trim().toIntOrNull() }
+        .filter { it > 0 }
+        .distinct()
+        .sorted()
+    return parsed.ifEmpty { listOf(2, 4, 6, 8, 10, 12, 14, 16) }
+}
+
 private fun printUsage() {
     println(
         """
@@ -158,51 +178,51 @@ private fun printUsage() {
           --shiftY <number>
           --iterations <number>
           --sizes <list>
+          --threads <list>
           --borderColor <rgb>
           -h, --help
 
         Examples:
           --sizes 1024x768,1280x960,2048x1536
+          --threads 2,4,6,8,10,12,14,16
           --borderColor 187,38,73
         """.trimIndent()
     )
 }
 
-private fun printResults(results: List<PerformanceTester.TestResult>) {
+private fun printResults(
+    results: List<PerformanceTester.TestResult>,
+    threadCounts: List<Int>
+) {
     println("\n" + "=".repeat(80))
     println("TEST RESULTS")
     println("=".repeat(80))
-    
-    results.forEach { result ->
-        println("\nImage size: ${result.width} x ${result.height}")
-        println("-".repeat(60))
-        println("  All timing measurements:")
-        result.timings.forEachIndexed { index, time ->
-            println("    Run ${index + 1}: ${formatTime(time)}")
-        }
-        println("  Average time: ${formatTime(result.averageTime)}")
-        println("  Min time: ${formatTime(result.minTime)}")
-        println("  Max time: ${formatTime(result.maxTime)}")
-        println("  Standard deviation: ${formatTime(result.standardDeviation)}")
-        println("  Output file: ${result.outputFile}")
-    }
-    
-    println("\n" + "=".repeat(80))
-    println("PERFORMANCE COMPARISON")
-    println("=".repeat(80))
-    
-    if (results.size > 1) {
-        val baseline = results.first()
-        results.drop(1).forEach { result ->
-            val ratio = result.averageTime / baseline.averageTime
-            val pixels = result.width * result.height
-            val baselinePixels = baseline.width * baseline.height
-            val pixelRatio = pixels.toDouble() / baselinePixels.toDouble()
-            
-            println("\n${result.width}x${result.height} vs ${baseline.width}x${baseline.height}:")
-            println("  Pixel count increase: ${String.format("%.2fx", pixelRatio)}")
-            println("  Processing time increase: ${String.format("%.2fx", ratio)}")
-            println("  Efficiency: ${String.format("%.2f%%", (pixelRatio / ratio) * 100)}")
+
+    val groupedBySize = results.groupBy { it.width to it.height }
+    groupedBySize.forEach { (size, sizeResults) ->
+        val width = size.first
+        val height = size.second
+        println("\nImage size: $width x $height")
+        println("-".repeat(80))
+
+        val byThreads = sizeResults.associateBy { it.threadCount }
+        val baseline = byThreads[threadCounts.first()]?.averageTime
+
+        threadCounts.forEach { threadCount ->
+            val result = byThreads[threadCount] ?: return@forEach
+            val speedup = if (baseline != null && result.averageTime > 0.0) {
+                baseline / result.averageTime
+            } else {
+                1.0
+            }
+            println(
+                "  Threads: ${result.threadCount.toString().padEnd(2)} " +
+                    "Avg: ${formatTime(result.averageTime).padEnd(16)} " +
+                    "Min: ${formatTime(result.minTime).padEnd(16)} " +
+                    "Max: ${formatTime(result.maxTime).padEnd(16)} " +
+                    "StdDev: ${formatTime(result.standardDeviation).padEnd(16)} " +
+                    "Speedup: ${String.format(Locale.US, "%.2fx", speedup)}"
+            )
         }
     }
 }
@@ -210,7 +230,7 @@ private fun printResults(results: List<PerformanceTester.TestResult>) {
 private fun formatTime(milliseconds: Number): String {
     val ms = milliseconds.toDouble()
     return when {
-        ms < 1000 -> String.format("%.2f ms", ms)
-        else -> String.format("%.2f sec (%.0f ms)", ms / 1000, ms)
+        ms < 1000 -> String.format(Locale.US, "%.2f ms", ms)
+        else -> String.format(Locale.US, "%.2f sec (%.0f ms)", ms / 1000, ms)
     }
 }
