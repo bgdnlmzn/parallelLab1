@@ -1,6 +1,8 @@
 package imageprocessing
 
 import imageprocessing.core.ImageProcessor
+import imageprocessing.core.pipeline.InvertContrastPipeline
+import imageprocessing.core.pipeline.ShiftBlurPipeline
 import imageprocessing.testing.PerformanceTester
 import imageprocessing.utils.ImageGenerator
 import java.io.File
@@ -21,6 +23,7 @@ fun main(args: Array<String>) {
     val borderColor = settings.borderColor
     val testSizes = settings.testSizes
     val threadCounts = settings.threadCounts
+    val pipelineName = settings.pipelineName
 
     println("=".repeat(80))
     println("Image processing program")
@@ -29,14 +32,24 @@ fun main(args: Array<String>) {
     outputDir.mkdirs()
     generateTestImagesIfNeeded(inputDir, testSizes)
 
-    val processor = ImageProcessor(shiftX, shiftY, borderColor)
+    val pipeline = when (pipelineName) {
+        "shift-blur" -> ShiftBlurPipeline(shiftX, shiftY, borderColor)
+        else -> InvertContrastPipeline()
+    }
+    val processor = ImageProcessor(pipeline)
     val tester = PerformanceTester(processor, outputDir)
     
     println("\nStarting performance tests...")
     println("Processing parameters:")
-    println("  - Shift X: $shiftX pixels")
-    println("  - Shift Y: $shiftY pixels")
-    println("  - Border color: RGB(${borderColor.first}, ${borderColor.second}, ${borderColor.third})")
+    println("  - Pipeline: ${pipeline.name}")
+    if (pipeline.name == "shift-blur") {
+        println("  - Shift X: $shiftX pixels")
+        println("  - Shift Y: $shiftY pixels")
+        println("  - Border color: RGB(${borderColor.first}, ${borderColor.second}, ${borderColor.third})")
+    } else {
+        println("  - Operation 1: color inversion (255 - channel)")
+        println("  - Operation 2: contrast convolution (3x3)")
+    }
     println("  - Runs per size: $iterations")
     println("  - Thread counts: ${threadCounts.joinToString(", ")}")
     println()
@@ -63,7 +76,8 @@ private data class Settings(
     val iterations: Int,
     val borderColor: Triple<Int, Int, Int>,
     val testSizes: List<Pair<Int, Int>>,
-    val threadCounts: List<Int>
+    val threadCounts: List<Int>,
+    val pipelineName: String
 )
 
 private fun parseSettings(args: Map<String, String>): Settings {
@@ -75,7 +89,8 @@ private fun parseSettings(args: Map<String, String>): Settings {
     val iterations = if (iterationsRaw < 1) 1 else iterationsRaw
     val borderColor = parseBorderColor(args["borderColor"] ?: "187,38,73")
     val testSizes = parseSizes(args["sizes"] ?: "1024x768,1280x960,2048x1536")
-    val threadCounts = parseThreadCounts(args["threads"] ?: "1,2,4,6,8,10,12,14,16")
+    val threadCounts = parseThreadCounts(args["threads"] ?: "2,4,6,8,10,12,14,16")
+    val pipelineName = (args["pipeline"] ?: "invert-contrast").trim().lowercase()
     return Settings(
         inputDir = inputDir,
         outputDir = outputDir,
@@ -84,7 +99,8 @@ private fun parseSettings(args: Map<String, String>): Settings {
         iterations = iterations,
         borderColor = borderColor,
         testSizes = testSizes,
-        threadCounts = threadCounts
+        threadCounts = threadCounts,
+        pipelineName = pipelineName
     )
 }
 
@@ -179,12 +195,14 @@ private fun printUsage() {
           --iterations <number>
           --sizes <list>
           --threads <list>
+          --pipeline <invert-contrast|shift-blur>
           --borderColor <rgb>
           -h, --help
 
         Examples:
           --sizes 1024x768,1280x960,2048x1536
           --threads 2,4,6,8,10,12,14,16
+          --pipeline invert-contrast
           --borderColor 187,38,73
         """.trimIndent()
     )

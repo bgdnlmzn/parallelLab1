@@ -1,7 +1,8 @@
 package imageprocessing.transformations
 
+import imageprocessing.parallel.RowParallelExecutor
 import java.awt.image.BufferedImage
-import java.util.concurrent.Executors
+
 class ImageShifter {
 
     fun shiftImage(
@@ -18,24 +19,7 @@ class ImageShifter {
 
         val borderRGB = rgbToInt(borderColor.first, borderColor.second, borderColor.third)
 
-        if (threadCount <= 1) {
-            for (y in 0 until height) {
-                for (x in 0 until width) {
-                    val sourceX = x - shiftX
-                    val sourceY = y - shiftY
-
-                    val rgb = if (sourceX in 0 until width && sourceY in 0 until height) {
-                        source.getRGB(sourceX, sourceY)
-                    } else {
-                        borderRGB
-                    }
-                    result.setRGB(x, y, rgb)
-                }
-            }
-            return result
-        }
-
-        parallelForRows(height, threadCount) { startRow, endRow ->
+        RowParallelExecutor.run(height, threadCount) { startRow, endRow ->
             for (y in startRow until endRow) {
                 for (x in 0 until width) {
                     val sourceX = x - shiftX
@@ -55,23 +39,5 @@ class ImageShifter {
 
     private fun rgbToInt(red: Int, green: Int, blue: Int): Int {
         return (red shl 16) or (green shl 8) or blue
-    }
-
-    private fun parallelForRows(
-        totalRows: Int,
-        threadCount: Int,
-        action: (startRow: Int, endRow: Int) -> Unit
-    ) {
-        val pool = Executors.newFixedThreadPool(threadCount)
-        val futures = mutableListOf<java.util.concurrent.Future<*>>()
-        val chunkSize = (totalRows + threadCount - 1) / threadCount
-        for (i in 0 until threadCount) {
-            val start = i * chunkSize
-            if (start >= totalRows) break
-            val end = minOf(totalRows, start + chunkSize)
-            futures += pool.submit { action(start, end) }
-        }
-        futures.forEach { it.get() }
-        pool.shutdown()
     }
 }

@@ -1,7 +1,7 @@
 package imageprocessing.filters
 
+import imageprocessing.parallel.RowParallelExecutor
 import java.awt.image.BufferedImage
-import java.util.concurrent.Executors
 import kotlin.math.max
 import kotlin.math.min
 
@@ -14,27 +14,7 @@ class ConvolutionFilter {
         val kernelSize = kernel.size
         val offset = kernelSize / 2
 
-        if (threadCount <= 1) {
-            for (y in 0 until height) {
-                for (x in 0 until width) {
-                    val red = applyKernelToChannel(source, x, y, offset, kernel) { rgb ->
-                        (rgb shr 16) and 0xFF
-                    }
-                    val green = applyKernelToChannel(source, x, y, offset, kernel) { rgb ->
-                        (rgb shr 8) and 0xFF
-                    }
-                    val blue = applyKernelToChannel(source, x, y, offset, kernel) { rgb ->
-                        rgb and 0xFF
-                    }
-
-                    val rgb = (clamp(red) shl 16) or (clamp(green) shl 8) or clamp(blue)
-                    result.setRGB(x, y, rgb)
-                }
-            }
-            return result
-        }
-
-        parallelForRows(height, threadCount) { startRow, endRow ->
+        RowParallelExecutor.run(height, threadCount) { startRow, endRow ->
             for (y in startRow until endRow) {
                 for (x in 0 until width) {
                     val red = applyKernelToChannel(source, x, y, offset, kernel) { rgb ->
@@ -84,24 +64,6 @@ class ConvolutionFilter {
     }
 
     private fun clamp(value: Int): Int = max(0, min(255, value))
-
-    private fun parallelForRows(
-        totalRows: Int,
-        threadCount: Int,
-        action: (startRow: Int, endRow: Int) -> Unit
-    ) {
-        val pool = Executors.newFixedThreadPool(threadCount)
-        val futures = mutableListOf<java.util.concurrent.Future<*>>()
-        val chunkSize = (totalRows + threadCount - 1) / threadCount
-        for (i in 0 until threadCount) {
-            val start = i * chunkSize
-            if (start >= totalRows) break
-            val end = minOf(totalRows, start + chunkSize)
-            futures += pool.submit { action(start, end) }
-        }
-        futures.forEach { it.get() }
-        pool.shutdown()
-    }
 }
 
 data class ConvolutionKernel(

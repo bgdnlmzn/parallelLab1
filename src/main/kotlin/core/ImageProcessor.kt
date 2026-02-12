@@ -1,47 +1,25 @@
 package imageprocessing.core
 
-import imageprocessing.filters.ConvolutionFilter
-import imageprocessing.filters.GaussianBlurKernel
+import imageprocessing.core.pipeline.ImagePipeline
 import imageprocessing.io.ImageLoader
 import imageprocessing.io.ImageSaver
-import imageprocessing.transformations.ImageShifter
-import java.awt.image.BufferedImage
 import java.io.File
 
 class ImageProcessor(
-    private val shiftX: Int,
-    private val shiftY: Int,
-    private val borderColor: Triple<Int, Int, Int>
+    private val pipeline: ImagePipeline
 ) {
     private val imageLoader = ImageLoader()
     private val imageSaver = ImageSaver()
-    private val imageShifter = ImageShifter()
-    private val convolutionFilter = ConvolutionFilter()
     
     fun processImage(inputFile: File, outputFile: File, threadCount: Int): Long {
         val startTime = System.currentTimeMillis()
 
         val originalImage = imageLoader.loadImage(inputFile)
 
-        val processedImage = applyTransformations(originalImage, threadCount)
+        val processedImage = pipeline.apply(originalImage, threadCount)
 
         imageSaver.saveImage(processedImage, outputFile)
         val endTime = System.currentTimeMillis()
         return endTime - startTime
     }
-
-    private fun applyTransformations(image: BufferedImage, threadCount: Int): BufferedImage {
-        val shiftedImage = imageShifter.shiftImage(
-            image, 
-            shiftX, 
-            shiftY, 
-            borderColor,
-            threadCount
-        )
-
-        val kernel = GaussianBlurKernel.create3x3()
-        val blurredImage = convolutionFilter.applyFilter(shiftedImage, kernel, threadCount)
-        return blurredImage
-    }
-
 }
